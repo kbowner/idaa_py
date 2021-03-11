@@ -69,4 +69,6 @@ if __name__ == '__main__':
     print("--","*"*80)
     print_idaa_view_header(nz_schema, nz_view)
     bmsiw_stmt = get_bmsiw_view_body(bmsiw_schema, bmsiw_view)
-    print(bmsiw_stmt)
+    #print(bmsiw_stmt)
+    # Print a formatted view's DDL code using sqlparse module
+    print(sqlparse.format(bmsiw_stmt, reindent=True))
