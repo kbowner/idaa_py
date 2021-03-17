@@ -1,4 +1,5 @@
-import ibm_db, sqlparse
+import ibm_db, sqlparse, logging, os, os.path
+from pathlib import Path
 from colorama import Fore
 from colorama import Style
 
@@ -11,6 +12,41 @@ cPWD = "db2inst1"
 standard_audit_col_list = ['ROW_STAT_CD', 'INSRT_TMS', 'UPDT_TMS']
 
 conn = ibm_db.connect(f"DATABASE={cDATABASE};HOSTNAME={cHOSTNAME};PORT={cPORT};PROTOCOL={cPROTOCOL};UID={cUID};PWD={cPWD};", "", "")
+
+# Output directory for IDAA views ddl files, logs, etc
+f_pda_list = "C:\PERSONAL\PYTHON_PRG\pda_view_list.txt"
+output_directory = "d:\Work\IDAA\OUT"
+fLog = "IDAA_session.out"
+
+def IDAA_view_to_file (pda_schema, pda_view, bmsiw_schema, bmsiw_view):
+
+    fname = pda_schema.upper() + "." + pda_view.upper()
+
+    # fname_abs - is a full file name for the view DDL
+    fname_abs = output_directory + "\\" + fname + ".DDL"
+    if os.path.exists(fname_abs):
+        os.remove(fname_abs)
+    f = open(fname_abs, "a")
+    f.write("-- " + "#" * 80+"\n")
+    f.write(f"-- # PDA view: {nz_schema:>23}.{nz_view}\n")
+    f.write(f"-- # Legacy view: {bmsiw_schema:>20}.{bmsiw_view}\n")
+    f.write("-- " + "#" * 80+"\n")
+    f.write("\n")
+    idaa_view_header = print_idaa_view_header(nz_schema, nz_view)
+    idaa_view_statement = get_bmsiw_view_body(bmsiw_schema, bmsiw_view)
+    cur_sqlid = "SIWASDBA"
+    idaa_label = "\nLABEL ON TABLE " + pda_schema.upper() + "." + pda_view.upper() + " IS 'IDAA " + pda_schema.upper() + "';\n"
+    f.write("\nSET CURRENT SQLID = '" + cur_sqlid + "';\n")
+    f.write(sqlparse.format(idaa_view_header, reindent=True, wrap_after=True, truncate_strings=80))
+    f.write(sqlparse.format(idaa_view_statement, reindent=True, wrap_after=True, truncate_strings=80)+"\n")
+    f.write(idaa_label)
+    f.write("\n")
+    f.close()
+
+
+def log_print(msg):
+    logging.basicConfig(format='%(message)s', level=logging.INFO, filename=flog_abs)
+    logging.info(msg)
 
 
 def get_legacy_view_name(pda_schema, pda_view):
@@ -29,7 +65,7 @@ def get_idaa_view_header(pda_schema, pda_view):
     while s2:
         cols.append (s2[0])
         s2 = ibm_db.fetch_tuple(stmt)
-    s1 = "CREATE VIEW " + pda_schema + "." + pda_view + "("
+    s1 = "CREATE VIEW " + pda_schema + "." + pda_view + " ("
     col_list_len = len(cols)
     col_list = []
     for i in range (0,col_list_len-1):
@@ -96,52 +132,95 @@ def check_audit_col (src_db, schema, view):
     return aud_col_list
 
 def compare_audit_col(db2_list, pda_list):
+    msg = ""
     # Now check the order of the audit columns
     if (all(x in db2_list for x in pda_list)) and (db2_list == standard_audit_col_list) and (db2_list == pda_list):
-        print(f"{Fore.LIGHTGREEN_EX}Audit columns: YES (PDA and DB2); Last 3 columns and order are the same.{Style.RESET_ALL}")
+        msg = "Audit columns: YES (PDA and DB2); Last 3 columns and order are the same."
     elif (all(x in db2_list for x in pda_list)) and (db2_list == standard_audit_col_list) and (db2_list != pda_list):
-        print(f"{Fore.GREEN}Audit columns: YES (PDA and DB2); Last 3 columns are the same, but the order is different.{Style.RESET_ALL}")
+        msg = "Audit columns: YES (PDA and DB2); Last 3 columns are the same, but the order is different."
     elif (db2_list != standard_audit_col_list) and (pda_list != standard_audit_col_list) \
             and (get_view_row_count('DB2', bmsiw_schema, bmsiw_view) == get_view_row_count('PDA', nz_schema, nz_view)):
-        print(f"{Fore.GREEN}Audit columns: NO (PDA and DB2); Both views column count is equal.{Style.RESET_ALL}")
+        msg = "Audit columns: NO (PDA and DB2); Both views have the same num of column."
     elif (db2_list != standard_audit_col_list) and (pda_list != standard_audit_col_list) \
             and (get_view_row_count('DB2', bmsiw_schema, bmsiw_view) != get_view_row_count('PDA', nz_schema, nz_view)):
-        print(f"{Fore.RED}Audit columns: NO (PDA and DB2); Both views column count is different!{Style.RESET_ALL}")
+        msg = "Audit columns: NO (PDA and DB2); Both views column count is different!"
     elif (db2_list == standard_audit_col_list) and (pda_list != standard_audit_col_list) \
             and (get_view_row_count('DB2', bmsiw_schema, bmsiw_view) != get_view_row_count('PDA', nz_schema, nz_view)):
-        print(f"{Fore.RED}Audit columns: YES (DB2) and NO (PDA); Both views column count is different!{Style.RESET_ALL}")
+        msg = "Audit columns: YES (DB2) and NO (PDA); Both views column count is different!"
     elif (db2_list != standard_audit_col_list) and (pda_list == standard_audit_col_list) \
             and (get_view_row_count('DB2', bmsiw_schema, bmsiw_view) != get_view_row_count('PDA', nz_schema, nz_view)):
-        print(f"{Fore.RED}Audit columns: NO (DB2) and YES (PDA); Both views column count is different!{Style.RESET_ALL}")
+        msg = "Audit columns: NO (DB2) and YES (PDA); Both views column count is different!"
     elif (db2_list == standard_audit_col_list) and (pda_list != standard_audit_col_list) \
             and (get_view_row_count('DB2', bmsiw_schema, bmsiw_view) == get_view_row_count('PDA', nz_schema, nz_view)):
-        print(f"{Fore.RED}Audit columns: YES (DB2) and NO (PDA); But views column count is the same!{Style.RESET_ALL}")
+        msg = "Audit columns: YES (DB2) and NO (PDA); But views column count is the same!"
     elif (db2_list != standard_audit_col_list) and (pda_list == standard_audit_col_list) \
             and (get_view_row_count('DB2', bmsiw_schema, bmsiw_view) == get_view_row_count('PDA', nz_schema, nz_view)):
-        print(f"{Fore.RED}Audit columns: NO (DB2) and YES (PDA); But views column count is the same!{Style.RESET_ALL}")
+        msg = "Audit columns: NO (DB2) and YES (PDA); But views column count is the same!"
     else:
-        print(f"{Fore.RED}Check columns and fix header/body of the view!{Style.RESET_ALL}")
+        msg = "Check columns and fix header/body of the view!"
 
-    return 0
+    return msg
+
+def IDAA_proceed_single_view (nz_schema, nz_view,  bmsiw_schema, bmsiw_view):
+
+    # Next section is commented out - for console output
+    # ----------------
+    # print("--", "#" * 80)
+    # print(f"-- # PDA view: {nz_schema:>23}.{nz_view}")
+    # print(f"-- # Legacy view: {bmsiw_schema:>20}.{bmsiw_view}")
+    # print("--", "#")
+    # print("--", f"# Legacy view column count = {get_view_row_count('DB2', bmsiw_schema, bmsiw_view):>5}")
+    # print("--", f"# PDA view column count = {get_view_row_count('PDA', nz_schema, nz_view):>8}")
+    # print("--","#"*80)
+    # idaa_view_header = print_idaa_view_header(nz_schema, nz_view)
+    # idaa_view_statement = get_bmsiw_view_body(bmsiw_schema, bmsiw_view)
+    # print(sqlparse.format(idaa_view_header, reindent=True, wrap_after=True, truncate_strings=80))
+    # print(sqlparse.format(idaa_view_statement, reindent=True, wrap_after=True, truncate_strings=80))
+    # ----------------
+
+
+    log_print("-- " + "#" * 80)
+    log_print(f"-- # PDA view: {nz_schema:>23}.{nz_view}")
+    log_print(f"-- # Legacy view: {bmsiw_schema:>20}.{bmsiw_view}")
+    log_print("-- #")
+    log_print(f"-- # Legacy view column count = {get_view_row_count('DB2', bmsiw_schema, bmsiw_view):>5}")
+    log_print(f"-- # PDA view column count = {get_view_row_count('PDA', nz_schema, nz_view):>8}")
+    log_print("-- #")
+    log_print("-- # " + compare_audit_col(check_audit_col ('DB2', bmsiw_schema, bmsiw_view),check_audit_col ('PDA', nz_schema, nz_view)))
+    log_print("")
+    # First check if there are records for PDA view
+    if (get_view_row_count('PDA', nz_schema, nz_view)>0):
+        IDAA_view_to_file (nz_schema, nz_view, bmsiw_schema, bmsiw_view)
+    else:
+        log_print("ERROR: No rows for PDA view found!")
+    log_print("-- " + "#" * 80)
+    log_print("")
+
 
 
 if __name__ == '__main__':
+
+    # prepare log
+    flog_abs = output_directory + "\\" + fLog
+    if os.path.exists(flog_abs):
+        os.remove(flog_abs)
+
+    # -- example - how to proceed with a single view -----------------------
     nz_schema = 'LEDGER'
     nz_view = 'LEDGER_2020_V'
     bmsiw_schema, bmsiw_view = get_legacy_view_name(nz_schema, nz_view)
-    print("--", "#" * 80)
-    print(f"-- # PDA view: {nz_schema:>23}.{nz_view}")
-    print(f"-- # Legacy view: {bmsiw_schema:>20}.{bmsiw_view}")
-    print("--", "#")
-    print("--", f"# Legacy view column count = {get_view_row_count('DB2', bmsiw_schema, bmsiw_view):>5}")
-    print("--", f"# PDA view column count = {get_view_row_count('PDA', nz_schema, nz_view):>8}")
-    print("--","#"*80)
-    idaa_view_header = print_idaa_view_header(nz_schema, nz_view)
-    idaa_view_statement = get_bmsiw_view_body(bmsiw_schema, bmsiw_view)
-    # Print a formatted view's DDL code using sqlparse module
-    print(sqlparse.format(idaa_view_header, reindent=True, wrap_after=True, truncate_strings=80))
-    print(sqlparse.format(idaa_view_statement, reindent=True, wrap_after=True, truncate_strings=80))
-    print(check_audit_col ('DB2', bmsiw_schema, bmsiw_view))
-    print(check_audit_col ('PDA', nz_schema, nz_view))
-    compare_audit_col(check_audit_col ('DB2', bmsiw_schema, bmsiw_view),check_audit_col ('PDA', nz_schema, nz_view))
+    IDAA_proceed_single_view (nz_schema, nz_view, bmsiw_schema, bmsiw_view)
+    # ----------------------------------------------------------------------
+
+    #sql = f"SELECT NEW_SCHEMA, NEW_VIEW_NAME FROM IDAA.PDA_VIEW_MAP;"
+    #stmt = ibm_db.exec_immediate(conn, sql)
+    #tuple = ibm_db.fetch_tuple(stmt)
+    #while tuple:
+    #    nz_schema = tuple[0]
+    #    nz_view = tuple[1]
+    #    tuple = ibm_db.fetch_tuple(stmt)
+    #    bmsiw_schema, bmsiw_view = get_legacy_view_name(nz_schema, nz_view)
+    #    IDAA_proceed_single_view(nz_schema, nz_view, bmsiw_schema, bmsiw_view)
+
+
 
