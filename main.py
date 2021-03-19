@@ -69,8 +69,9 @@ def get_idaa_view_header(pda_schema, pda_view):
     col_list_len = len(cols)
     col_list = []
     for i in range (0,col_list_len-1):
-        col_list.append(cols[i])
-    last_col = col_list[i]
+        if (i<col_list_len-1):
+            col_list.append(cols[i])
+    last_col = cols[i + 1]
     col_list.append(last_col[:-1])
     s3 = ")"
     return s1, col_list, s3
@@ -94,7 +95,7 @@ def get_bmsiw_view_body(schema, view):
         stmt_len = res[1]
         stmt_txt = res[0]
         res = ibm_db.fetch_tuple(stmt)
-    view_body = stmt_txt[stmt_txt.find('AS'):]+';'
+    view_body = stmt_txt[stmt_txt.find(' AS '):]+';'
     return view_body
 
 def get_view_row_count(src_db, schema, view):
@@ -133,6 +134,7 @@ def check_audit_col (src_db, schema, view):
 
 def compare_audit_col(db2_list, pda_list):
     msg = ""
+
     # Now check the order of the audit columns
     if (all(x in db2_list for x in pda_list)) and (db2_list == standard_audit_col_list) and (db2_list == pda_list):
         msg = "Audit columns: YES (PDA and DB2); Last 3 columns and order are the same."
@@ -206,21 +208,21 @@ if __name__ == '__main__':
         os.remove(flog_abs)
 
     # -- example - how to proceed with a single view -----------------------
-    nz_schema = 'LEDGER'
-    nz_view = 'LEDGER_2020_V'
-    bmsiw_schema, bmsiw_view = get_legacy_view_name(nz_schema, nz_view)
-    IDAA_proceed_single_view (nz_schema, nz_view, bmsiw_schema, bmsiw_view)
+    # nz_schema = 'ACCTRCVBL'
+    # nz_view = 'TREASURY_ITEM_UV'
+    # bmsiw_schema, bmsiw_view = get_legacy_view_name(nz_schema, nz_view)
+    # IDAA_proceed_single_view (nz_schema, nz_view, bmsiw_schema, bmsiw_view)
     # ----------------------------------------------------------------------
 
-    #sql = f"SELECT NEW_SCHEMA, NEW_VIEW_NAME FROM IDAA.PDA_VIEW_MAP;"
-    #stmt = ibm_db.exec_immediate(conn, sql)
-    #tuple = ibm_db.fetch_tuple(stmt)
-    #while tuple:
-    #    nz_schema = tuple[0]
-    #    nz_view = tuple[1]
-    #    tuple = ibm_db.fetch_tuple(stmt)
-    #    bmsiw_schema, bmsiw_view = get_legacy_view_name(nz_schema, nz_view)
-    #    IDAA_proceed_single_view(nz_schema, nz_view, bmsiw_schema, bmsiw_view)
+    sql = f"SELECT NEW_SCHEMA, NEW_VIEW_NAME FROM IDAA.PDA_VIEW_MAP;"
+    stmt = ibm_db.exec_immediate(conn, sql)
+    tuple = ibm_db.fetch_tuple(stmt)
+    while tuple:
+        nz_schema = tuple[0]
+        nz_view = tuple[1]
+        tuple = ibm_db.fetch_tuple(stmt)
+        bmsiw_schema, bmsiw_view = get_legacy_view_name(nz_schema, nz_view)
+        IDAA_proceed_single_view(nz_schema, nz_view, bmsiw_schema, bmsiw_view)
 
 
 
